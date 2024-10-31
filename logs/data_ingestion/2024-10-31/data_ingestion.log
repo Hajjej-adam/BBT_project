@@ -431,3 +431,17 @@ Caused by: java.util.regex.PatternSyntaxException: Illegal character range near 
 2024-10-31 23:00:46,001 - INFO - Audit report for suppliers generated and saved.
 2024-10-31 23:00:46,301 - INFO - Data ingestion and audit process completed.
 2024-10-31 23:00:46,323 - INFO - Closing down clientserver connection
+2024-10-31 23:08:37,252 - INFO - Starting ingestion for sales from data/raw/sales.csv to output/bronze/sales\2024-10-31
+2024-10-31 23:08:48,642 - INFO - Successfully ingested sales data to output/bronze/sales\2024-10-31
+2024-10-31 23:08:56,650 - INFO - Audit report for sales generated and saved.
+2024-10-31 23:08:56,650 - INFO - Starting ingestion for customers from data/raw/customers.csv to output/bronze/customers\2024-10-31
+2024-10-31 23:08:57,359 - INFO - Successfully ingested customers data to output/bronze/customers\2024-10-31
+2024-10-31 23:09:00,461 - INFO - Audit report for customers generated and saved.
+2024-10-31 23:09:00,463 - INFO - Starting ingestion for products from data/raw/products.csv to output/bronze/products\2024-10-31
+2024-10-31 23:09:01,165 - INFO - Successfully ingested products data to output/bronze/products\2024-10-31
+2024-10-31 23:09:03,900 - INFO - Audit report for products generated and saved.
+2024-10-31 23:09:03,900 - INFO - Starting ingestion for suppliers from data/raw/suppliers.csv to output/bronze/suppliers\2024-10-31
+2024-10-31 23:09:04,390 - INFO - Successfully ingested suppliers data to output/bronze/suppliers\2024-10-31
+2024-10-31 23:09:06,622 - INFO - Audit report for suppliers generated and saved.
+2024-10-31 23:09:07,041 - INFO - Data ingestion and audit process completed.
+2024-10-31 23:09:07,063 - INFO - Closing down clientserver connection

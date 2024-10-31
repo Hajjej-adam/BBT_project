@@ -89,9 +89,9 @@ def audit_data(df, source_name, id_column):
         add_error_report("ProductID", (col("ProductID").cast("int").isNull()) | (col("ProductID") <= 0), "positive integer")
         add_error_report("SupplierID", (col("SupplierID").cast("int").isNull()) | (col("SupplierID") <= 0), "positive integer")
         add_error_report("CategoryID", (col("CategoryID").cast("int").isNull()) | (col("CategoryID") <= 0), "positive integer")
-        add_error_report("UnitsInStock", (col("UnitsInStock").cast("int").isNull()) | (col("UnitsInStock") <= 0), "positive integer")
-        add_error_report("UnitsOnOrder", (col("UnitsOnOrder").cast("int").isNull()) | (col("UnitsOnOrder") <= 0), "positive integer")
-        add_error_report("ReorderLevel", (col("ReorderLevel").cast("int").isNull()) | (col("ReorderLevel") <= 0), "positive integer")
+        add_error_report("UnitsInStock", (col("UnitsInStock").cast("int").isNull()) | (col("UnitsInStock") < 0), "positive integer")
+        add_error_report("UnitsOnOrder", (col("UnitsOnOrder").cast("int").isNull()) | (col("UnitsOnOrder") < 0), "positive integer")
+        add_error_report("ReorderLevel", (col("ReorderLevel").cast("int").isNull()) | (col("ReorderLevel") < 0), "positive integer")
         add_error_report("UnitPrice", (col("UnitPrice").cast("float").isNull()) | (col("UnitPrice") <= 0), "positive float")
 
     report.append("\n" + "="*40 + "\n\n")
