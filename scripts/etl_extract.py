@@ -30,8 +30,7 @@ def log_message(message, level="info"):
         logging.info(message)
     elif level == "error":
         logging.error(message)
-    print(message)  # Also print to console for real-time feedback
-
+    print(message)  
 # Define sources
 sources = ["sales", "customers", "products", "suppliers"]
 
