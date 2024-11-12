@@ -14,7 +14,6 @@ spark = SparkSession.builder \
 base_path = "data/raw/"
 bronze_base_path = "output/bronze/"
 silver_base_path = "output/silver/"
-gold_base_path = "output/gold/"
 date_str = datetime.now().strftime("%Y-%m-%d")
 
 # Log path organized by date
@@ -39,7 +38,7 @@ def log_message(message, level="info"):
 
 # Mapping of sources to their respective ID columns
 source_id_mapping = {
-    "sales": "OrderId0",
+    "sales": "OrderId",
     "customers": "CustomerID",
     "products": "ProductID",
     "suppliers": "SupplierID"
@@ -82,6 +81,9 @@ def clean_data(df, report, source_name):
             else:
                 fill_values[column] = "Unknown"  # Default fallback
 
+    # Remove any None values from the dictionary
+    fill_values = {k: v for k, v in fill_values.items() if v is not None}
+
     if fill_values:
         df = df.fillna(fill_values)
         log_message(f"Applied fillna with values: {fill_values}")
@@ -95,17 +97,29 @@ def clean_data(df, report, source_name):
     # 3. Remove Duplicate Columns
     duplicate_columns = report.get("duplicate_columns", [])
     for dup_set in duplicate_columns:
-        # Example format: " - OrderID: OrderID0, OrderID14"
-        # We need to parse the string to extract column names
         try:
+            # Example format: " - OrderID: OrderID0, OrderID14"
+            # We need to parse the string to extract column names
             _, columns_str = dup_set.split(":")
             columns = [col.strip() for col in columns_str.split(",")]
+            
             # Keep the first column, drop the rest
+            first_column = columns[0]
             columns_to_drop = columns[1:]
+            
+            # Drop duplicate columns
             df = df.drop(*columns_to_drop)
             log_message(f"Dropped duplicate columns {columns_to_drop} from '{dup_set.split(':')[0].strip()}'")
+            
+            # Remove numeric suffix from the first column name, if it has one (e.g., "OrderID0" becomes "OrderID")
+            if first_column[-1].isdigit():
+                base_column_name = first_column.rstrip("0123456789")
+                df = df.withColumnRenamed(first_column, base_column_name)
+                log_message(f"Renamed column '{first_column}' to '{base_column_name}'")
+        
         except Exception as e:
             log_message(f"Error parsing duplicate columns '{dup_set}': {str(e)}", level="error")
+
 
     # 4. Handle Data Type and Format Inconsistencies
     inconsistencies = report.get("data_type_and_format_inconsistencies", [])
@@ -171,29 +185,28 @@ for report in audit_reports:
 
     bronze_path = os.path.join(bronze_base_path, source, date_str)
     silver_path = os.path.join(silver_base_path, source, date_str)
-    gold_path = os.path.join(gold_base_path, source, date_str)
 
     log_message(f"Starting cleaning process for '{source}'")
 
-    # Check if Silver path exists
-    if not os.path.exists(silver_path):
-        log_message(f"Silver path does not exist for '{source}': {silver_path}", level="error")
+    # Check if bronze path exists
+    if not os.path.exists(bronze_path):
+        log_message(f"bronze path does not exist for '{source}': {bronze_path}", level="error")
         continue
 
     try:
-        # Read data from the Silver layer
-        df_silver = spark.read.parquet(silver_path)
-        log_message(f"Loaded data for '{source}' from '{silver_path}'")
+        # Read data from the bronze layer
+        df_bronze = spark.read.parquet(bronze_path)
+        log_message(f"Loaded data for '{source}' from '{bronze_path}'")
 
         # Clean the data based on the audit report
-        df_cleaned = clean_data(df_silver, report, source)
+        df_cleaned = clean_data(df_bronze, report, source)
 
-        # Ensure the Gold path exists
-        os.makedirs(gold_path, exist_ok=True)
+        # Ensure the silver path exists
+        os.makedirs(silver_path, exist_ok=True)
 
-        # Write the cleaned data to the Gold layer
-        df_cleaned.write.mode("overwrite").parquet(gold_path)
-        log_message(f"Cleaned data for '{source}' written to '{gold_path}'")
+        # Write the cleaned data to the silver layer
+        df_cleaned.write.mode("overwrite").parquet(silver_path)
+        log_message(f"Cleaned data for '{source}' written to '{silver_path}'")
 
     except Exception as e:
         log_message(f"Error cleaning data for '{source}': {str(e)}", level="error")

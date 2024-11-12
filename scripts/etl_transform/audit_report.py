@@ -14,7 +14,6 @@ spark = SparkSession.builder \
 # Define paths
 base_path = "data/raw/"
 bronze_base_path = "output/bronze/"
-silver_base_path = "output/silver/"
 date_str = datetime.now().strftime("%Y-%m-%d")
 
 # Log path organized by date
@@ -145,15 +144,12 @@ with open(report_path, "w") as report_file, open(json_report_path, "w") as json_
     for idx, (source, id_column) in enumerate(sources):
         try:
             bronze_path = os.path.join(bronze_base_path, source, date_str)
-            silver_path = os.path.join(silver_base_path, source, date_str)
             
-            log_message(f"Starting processing for {source} from {bronze_path} to {silver_path}")
+            log_message(f"Starting data checking for {source} from {bronze_path} ")
             
             # Read data from Bronze layer (Parquet format)
             df = spark.read.parquet(bronze_path)
-            df_transformed = df.dropDuplicates()
-            os.makedirs(silver_path, exist_ok=True)
-            df_transformed.write.mode("overwrite").parquet(silver_path)
+           
 
             # Write the audit report to the text file
             audit_report, json_report = audit_data(df, source, id_column)
@@ -167,7 +163,7 @@ with open(report_path, "w") as report_file, open(json_report_path, "w") as json_
             else:
                 json_report_file.write("\n")  # No comma after the last JSON object
 
-            log_message(f"Finished processing {source} and written to {silver_path}")
+            log_message(f"Finished data checking of {source} ")
         
         except Exception as e:
             log_message(f"Error processing {source}: {str(e)}", level="error")
