@@ -3,7 +3,8 @@ import json
 import os
 import logging
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, when, lit, regexp_replace, to_date
+from pyspark.sql.functions import col, when, regexp_replace, to_date, regexp_extract, udf
+from pyspark.sql.types import FloatType, IntegerType
 
 # Initialize Spark session
 spark = SparkSession.builder \
@@ -13,7 +14,7 @@ spark = SparkSession.builder \
 # Define paths
 base_path = "data/raw/"
 bronze_base_path = "output/bronze/"
-silver_base_path = "output/silver/"
+silver_base_path = "output/silver/cleaned"
 date_str = datetime.now().strftime("%Y-%m-%d")
 
 # Log path organized by date
@@ -43,6 +44,19 @@ source_id_mapping = {
     "products": "ProductID",
     "suppliers": "SupplierID"
 }
+# UDF to clean numeric columns by removing letters
+def clean_numeric_column(value, column_type):
+    import re
+    if value is None:
+        return None
+    cleaned_value = re.sub(r'[^\d.]', '', str(value))  # Retain digits and dots
+    if column_type == "float":
+        return float(cleaned_value) if cleaned_value else 0.0
+    elif column_type == "int":
+        return int(float(cleaned_value)) if cleaned_value else 0
+
+clean_numeric_column_float_udf = udf(lambda value: clean_numeric_column(value, "float"), FloatType())
+clean_numeric_column_int_udf = udf(lambda value: clean_numeric_column(value, "int"), IntegerType())
 
 # Function to clean a DataFrame based on its audit report
 def clean_data(df, report, source_name):
@@ -133,27 +147,32 @@ def clean_data(df, report, source_name):
 
         log_message(f"Fixing inconsistencies in column '{column}' for records {error_ids}")
 
-        if "positive integer" in expected_type:
-            # Replace non-positive integers with 1
-            df = df.withColumn(column, when(col(column) <= 0, 1).otherwise(col(column)))
-            log_message(f"Set non-positive values in '{column}' to 1")
-
-        elif "positive float" in expected_type:
-            # Replace negative floats with 0.0
+        if "positive float" in expected_type:
+        # Replace negative floats with 0.0 and remove invalid characters
+            df = df.withColumn(column, when(col(column).isNotNull(), clean_numeric_column_float_udf(col(column))).otherwise(0.0))
             df = df.withColumn(column, when(col(column) < 0, 0.0).otherwise(col(column)))
-            log_message(f"Set negative values in '{column}' to 0.0")
+            log_message(f"Set negative or invalid values in '{column}' to 0.0")
+
+        elif "positive integer" in expected_type:
+        # Replace non-positive integers with 1 and remove invalid characters
+            df = df.withColumn(column, when(col(column).isNotNull(), clean_numeric_column_int_udf(col(column))).otherwise(1))
+            df = df.withColumn(column, when(col(column) <= 0, 1).otherwise(col(column)))
+            log_message(f"Set non-positive or invalid values in '{column}' to 1")
 
         elif "numeric with . ( ) - symbols" in expected_type:
             # Standardize phone/fax formats by removing invalid characters
             # Alternatively, set to 'Unknown' if invalid
-            # Here, we'll set to 'Unknown' for invalid formats
             df = df.withColumn(column, when(col(column).rlike(r"^[0-9.\-\(\) ]+$"), col(column)).otherwise("Unknown"))
             log_message(f"Standardized formats in '{column}', set invalid formats to 'Unknown'")
 
-        elif "must be a non-empty string" in expected_type:
+        elif "must be a non-empty string "  in expected_type:
             # Replace empty strings with 'Unknown'
             df = df.withColumn(column, when((col(column) == "") | col(column).isNull(), "Unknown").otherwise(col(column)))
             log_message(f"Set empty strings in '{column}' to 'Unknown'")
+        elif "must contain only alphabetic characters and spaces" in expected_type:
+            # Remove any non-alphabetic characters from the 'Country' column
+            df = df.withColumn(column, when(regexp_extract(col(column), "^[a-zA-Z ]+$", 0) == "", "Unknown").otherwise(col(column)) )
+            log_message(f"Removed non-alphabetic characters from '{column}'")
 
         else:
             log_message(f"Unhandled expected type '{expected_type}' for column '{column}'", level="warning")

@@ -114,6 +114,7 @@ def audit_data(df, source_name, id_column):
         add_error_report("Phone", ~col("Phone").rlike(numeric_phone_fax_pattern), "numeric with . ( ) - symbols")
         add_error_report("Fax", ~col("Fax").rlike(numeric_phone_fax_pattern), "numeric with . ( ) - symbols")
         add_error_report("Address", col("Address").isNull() | (col("Address") == ""), "must be a non-empty string")
+        add_error_report("Country", ~col("Country").rlike("^[a-zA-Z ]+$"), "must contain only alphabetic characters and spaces")
         if source_name == "suppliers":
             add_error_report("SupplierID", (col("SupplierID").cast("int").isNull()) | (col("SupplierID") <= 0), "positive integer")
     elif source_name == "products":
