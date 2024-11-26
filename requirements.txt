@@ -1,4 +1,5 @@
-pyspark==3.5.3
+pyspark
 pycountry
 pycountry-convert
 requests
+pyodbc

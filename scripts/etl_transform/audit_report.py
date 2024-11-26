@@ -84,6 +84,7 @@ def audit_data(df, source_name, id_column):
         report.append("No duplicate columns found.\n")
     
     # 4. Check for data type and format inconsistencies
+    # Check for data type and format inconsistencies
     def add_error_report(column, filter_condition, expected_type_description):
         """Helper function to add error details to the report."""
         error_rows = df.filter(filter_condition).select(id_column).collect()
@@ -97,6 +98,16 @@ def audit_data(df, source_name, id_column):
                 "error_ids": error_ids
             })
             report.append(f" - {column}: {error_count} records do not match expected {expected_type_description} at {id_column}s {', '.join(map(str, error_ids))}\n")
+
+    # Additional validation for Date columns
+    for column in df.columns:
+        if "Date" in column:
+            add_error_report(
+                column,
+                ~col(column).rlike(r"^\d{4}-\d{2}-\d{2}$"),  # Regex to match YYYY-MM-DD format
+                "date in YYYY-MM-DD format"
+            )
+
     
     if source_name == "sales":
         # Sales table validation

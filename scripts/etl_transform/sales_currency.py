@@ -2,200 +2,143 @@ from datetime import datetime
 import os
 import logging
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, lit, when, udf
-import pycountry
-import requests
+from pyspark.sql.functions import col, year, when, lit, last
+from pyspark.sql.window import Window
+from pyspark.sql.types import FloatType
 
-# Get current date for the log directory
+# Initialize Logging
 current_date = datetime.now().strftime("%Y-%m-%d")
 log_dir = os.path.join("logs", "data_enrichment", current_date)
-
-# Create log directory if it doesn't exist
 os.makedirs(log_dir, exist_ok=True)
-
-# Log file path
-log_file = os.path.join(log_dir, "currency_exchange_rate_calculation.log")
-
-# Initialize logging
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+log_file = os.path.join(log_dir, "currency_conversion.log")
+logging.basicConfig(filename=log_file, level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 def log_message(message, level="info"):
-    """Logs messages with the specified level."""
     if level == "info":
         logging.info(message)
     elif level == "error":
         logging.error(message)
-    print(message)  # Also print to console for real-time feedback
+    print(message)
 
-# Initialize Spark session
+# Initialize Spark Session
 spark = SparkSession.builder \
-    .appName("Currency Exchange Rate Calculation") \
+    .appName("Currency Conversion Using CSV") \
     .getOrCreate()
 
-# Sample data path
+# Paths
 silver_base_path = "output/silver/"
 date_str = datetime.now().strftime("%Y-%m-%d")
+sales_path = os.path.join(silver_base_path, "enrichment", "sales", "total_amount",date_str)
+products_path = os.path.join(silver_base_path, "enrichment", "products", date_str)
+suppliers_path = os.path.join(silver_base_path, "cleaned", "suppliers", date_str)
+exchange_rate_path = "data/external/exchange_data.csv"
+enriched_sales_path = os.path.join(silver_base_path, "enrichment", "sales", "with_currency", date_str)
 
-sales_path = os.path.join(silver_base_path, "enrichment", "sales", date_str)
-enriched_sales_path = os.path.join(silver_base_path, "enrichment", "sales", "with_currency",date_str)
+# Load datasets
+df_sales = spark.read.parquet(sales_path)
+df_products = spark.read.parquet(products_path)
+df_suppliers = spark.read.parquet(suppliers_path)
+df_exchange_rates = spark.read.csv(exchange_rate_path, header=True, inferSchema=True)
 
-# API Key for currency exchange rates
-EXCHANGE_API_KEY = "cur_live_llnllJMpxMUec8hyGOvsMbcF78718Mjh4GKq2mMO"
+# Debugging: Print schemas to verify
+log_message("Products Schema:")
+df_products.printSchema()
+log_message("Suppliers Schema:")
+df_suppliers.printSchema()
+log_message("Exchange Rates Schema:")
+df_exchange_rates.printSchema()
 
-# Initialize a dictionary to store exchange rates
-exchange_rates_dict = {}
-
-# List of Eurozone countries (ISO-3166 country names)
-eurozone_countries = [
-    "Austria", "Belgium", "Cyprus", "Estonia", "Finland", "France", 
-    "Germany", "Greece", "Ireland", "Italy", "Latvia", "Lithuania", 
-    "Luxembourg", "Malta", "Netherlands", "Portugal", "Slovakia", 
-    "Slovenia", "Spain"
-]
-
-# Function to fetch exchange rate from API
-def fetch_exchange_rate(from_currency, to_currency):
-    log_message(f"Attempting to fetch exchange rate from {from_currency} to {to_currency}")
-    api_url = f"https://api.currencyapi.com/v3/latest?apikey={EXCHANGE_API_KEY}&currencies={to_currency}&base_currency={from_currency}"
-
-    try:
-        response = requests.get(api_url)
-        log_message(f"API Response for {from_currency} to {to_currency}: {response.status_code}")
-
-        if response.status_code == 200:
-            data = response.json()
-            if 'data' in data and to_currency in data['data']:
-                exchange_rate = data['data'][to_currency]['value']
-                log_message(f"Exchange rate fetched for {from_currency}-{to_currency}: {exchange_rate}")
-                return exchange_rate
-            else:
-                log_message(f"Exchange rate data missing for {from_currency}-{to_currency}.")
-        else:
-            log_message(f"Failed to fetch exchange rate for {from_currency}-{to_currency}. Status code: {response.status_code}")
-    except Exception as e:
-        log_message(f"Error fetching exchange rate for {from_currency}-{to_currency}: {e}")
-
-    return None
-
-# Function to handle API calls and cache the result
-def get_exchange_rate(from_currency, to_currency):
-    if (from_currency, to_currency) not in exchange_rates_dict:
-        # Fetch and cache the rate if not already cached
-        exchange_rate = fetch_exchange_rate(from_currency, to_currency)
-        if exchange_rate is not None:
-            exchange_rates_dict[(from_currency, to_currency)] = exchange_rate
-    return exchange_rates_dict.get((from_currency, to_currency), 0.0)
-
-# Updated get_currency_code function
-def get_currency_code(country_name_or_code):
-    try:
-        # Specific cases for Venezuela, Brazil, and the UK
-        if country_name_or_code.title() == "Venezuela":
-            return 'VES'
-        elif country_name_or_code.title() == "Brazil":
-            return 'BRL'
-        elif country_name_or_code.title() == "UK":
-            return 'GBP'
-        # First, attempt to match by exact country name
-        country = pycountry.countries.get(name=country_name_or_code.title())
-        
-        # If not found, try matching by alpha-2 or alpha-3 code
-        if not country:
-            country = pycountry.countries.get(alpha_2=country_name_or_code.upper())
-        if not country:
-            country = pycountry.countries.get(alpha_3=country_name_or_code.upper())
-        
-        # Check if it's a Euro country
-        if country_name_or_code.title() in eurozone_countries:
-            return 'EUR'
-
-        # If country is found, look up the currency using country.numeric
-        if country:
-            currency = pycountry.currencies.get(numeric=country.numeric)
-            if currency:
-                return currency.alpha_3  # Return ISO 4217 currency code
-            else:
-                return None
-
-    except AttributeError:
-        print(f"Could not find currency for country: {country_name_or_code}")
-    return None
-
-# UDF to get the currency based on the ShipCountry
-@udf
-def get_currency_udf(country):
-    return get_currency_code(country)
-
-# Load sales data
-df_sales_cleaned = spark.read.parquet(sales_path)
-
-# Add the currency column based on ShipCountry
-df_sales_with_currency = df_sales_cleaned.withColumn(
-    "Currency",
-    get_currency_udf(col("ShipCountry"))
+# Join products and suppliers to get product-country mapping
+df_product_country = df_products.join(
+    df_suppliers,
+    df_products["SupplierID"] == df_suppliers["SupplierID"],
+    "inner"
+).select(
+    df_products["ProductID"], df_suppliers["Country"].alias("ProductCountry")
 )
 
-# Ensure all necessary exchange rates are loaded before UDF execution
-unique_currencies = df_sales_with_currency.select("Currency").distinct().rdd.flatMap(lambda x: x).collect()
+# Add country information to sales data
+df_sales = df_sales.join(
+    df_product_country,
+    df_sales["ProductID"] == df_product_country["ProductID"],
+    "left"
+).drop(df_product_country["ProductID"])
 
-for currency in unique_currencies:
-    if currency != "EUR":  # No need to fetch rates for EUR
-        get_exchange_rate("EUR", currency)  # Preload exchange rate for EUR -> currency
 
-log_message("Preloaded exchange rates.")
+# Extract year from OrderDate for exchange rate matching
+df_sales = df_sales.withColumn("OrderYear", year(col("OrderDate")))
 
-# Broadcast the exchange rates dictionary
-exchange_rates_broadcast = spark.sparkContext.broadcast(exchange_rates_dict)
 
-# UDF to fetch exchange rate from broadcast variable and convert
-@udf
-def get_exchange_rate_udf(from_currency, to_currency):
-    return exchange_rates_broadcast.value.get((from_currency, to_currency), 0.0)
-
-# Calculate converted total_amounts
-df_sales_with_exchange_rate = df_sales_with_currency.withColumn(
-    "Converted_amount",
-    when(col("Currency") == "EUR", col("total_amount"))  # No conversion if currency is already EUR
-    .otherwise(col("total_amount") * get_exchange_rate_udf(lit("EUR"), col("Currency")))  # Convert from EUR to the destination currency
+# Prepare exchange rate data and fill missing rates
+df_exchange_rates = df_exchange_rates.withColumn(
+    "exchange_rate_to_euro",
+    col("exchange_rate_to_euro").cast(FloatType())
 )
 
-# Show a sample of the resulting dataframe to check if everything is working
-df_sales_with_exchange_rate.show(5)
-# UDF for currency conversion to include currency symbol in the amount
-@udf
-def format_amount_with_currency(amount, currency):
-    if amount is None:
-        return None
-    return f"{amount} {currency}"
+# Define a window specification to get the last available rate
+window_spec = Window.partitionBy("country").orderBy("date")
 
-# Updated logic for 'Converted_amount' to handle EUR as is and add currency
-df_sales_with_exchange_rate = df_sales_with_currency.withColumn(
-    "Converted_amount",
-    when(col("Currency") == "EUR", col("total_amount"))  # No conversion if currency is EUR
-    .otherwise(col("total_amount") * get_exchange_rate_udf(lit("EUR"), col("Currency")))  # Convert if not EUR
+# Add a column with the last available exchange rate for each country
+df_exchange_rates = df_exchange_rates.withColumn(
+    "last_exchange_rate_to_euro",
+    last("exchange_rate_to_euro", ignorenulls=True).over(window_spec)
 )
 
-# Add currency symbol to the 'Converted_amount' (e.g., "255 USD")
+log_message("Exchange Rates Data with Last Available Rate:")
+df_exchange_rates.show()
+
+# Join sales data with exchange rates
+df_sales_with_exchange_rate = df_sales.join(
+    df_exchange_rates,
+    (df_sales["ProductCountry"] == df_exchange_rates["country"]) &
+    (df_sales["OrderDate"] == df_exchange_rates["date"]),
+    "left"
+)
+
+# Fill missing exchange rates with the last available rate
 df_sales_with_exchange_rate = df_sales_with_exchange_rate.withColumn(
-    "Converted_amount_with_currency",
-    format_amount_with_currency(col("Converted_amount"), col("Currency"))
+    "exchange_rate_to_euro",
+    when(col("exchange_rate_to_euro").isNull(), col("last_exchange_rate_to_euro"))
+    .otherwise(col("exchange_rate_to_euro"))
 )
 
-# Show the resulting dataframe
-df_sales_with_exchange_rate.select("Converted_amount", "Converted_amount_with_currency").show(5)
+# Define Eurozone countries
+eurozone_countries = ["France", "Italy", "Germany", "Austria", "Spain", "Portugal", "Netherlands",
+                      "Finland", "Belgium", "Greece", "Ireland", "Slovakia", "Slovenia",
+                      "Estonia", "Lithuania", "Latvia", "Luxembourg", "Malta"]
 
-# Save enriched data without saving the 'Currency' column
-df_sales_with_exchange_rate.drop("Currency","Converted_amount").write.mode("overwrite").parquet(enriched_sales_path)
+# Handle Eurozone countries and missing exchange rates
+df_sales_with_exchange_rate = df_sales_with_exchange_rate.withColumn(
+    "exchange_rate_to_euro",
+    when(col("ProductCountry").isin(eurozone_countries), lit(1.0))  # Set to 1.0 for Eurozone countries
+    .otherwise(col("exchange_rate_to_euro"))
+)
 
-# Log success
+# Log rows where exchange rate is null after the adjustment
+log_message("Rows with Null Exchange Rate After Adjustment:")
+df_sales_with_exchange_rate.filter(col("exchange_rate_to_euro").isNull()).show()
 
-# Log success
-log_message(f"Enriched sales data with exchange rate saved to {enriched_sales_path}")
-log_message(f"Exchange rates dictionary: {exchange_rates_dict}")
+# Convert total_amount to Euros
+df_sales_with_exchange_rate = df_sales_with_exchange_rate.withColumn(
+    "total_amount_in_euro",
+    col("total_amount") / col("exchange_rate_to_euro")
+)
+
+
+# Validate rows with missing converted amounts
+missing_conversion_rows = df_sales_with_exchange_rate.filter(col("total_amount_in_euro").isNull()).count()
+if missing_conversion_rows > 0:
+    log_message(f"WARNING: {missing_conversion_rows} rows have null total_amount_in_euro.", level="error")
+    df_sales_with_exchange_rate.filter(col("total_amount_in_euro").isNull()).show()
+
+# Drop unwanted columns
+columns_to_drop = ["currency", "date", "ProductCountry", "country","last_exchange_rate_to_euro"]
+df_sales_with_exchange_rate = df_sales_with_exchange_rate.drop(*columns_to_drop)
+df_sales_with_exchange_rate = df_sales_with_exchange_rate.dropDuplicates()
+
+# Save enriched sales data
+df_sales_with_exchange_rate.write.mode("overwrite").parquet(enriched_sales_path)
+log_message(f"Enriched sales data with currency conversion saved to {enriched_sales_path}")
 
 # Stop Spark session
 spark.stop()

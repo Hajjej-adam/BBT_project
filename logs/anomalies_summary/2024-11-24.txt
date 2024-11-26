@@ -1,0 +1,10 @@
+Anomalies Detection Summary
+===========================
+Date: 2024-11-24
+
+Sales Anomalies: 0
+Products Anomalies: 1
+
+Details:
+- Sales anomalies saved to: output/silver/anomalies\sales\2024-11-24
+- Products anomalies saved to: output/silver/anomalies\products\2024-11-24

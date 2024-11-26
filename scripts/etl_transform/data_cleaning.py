@@ -3,13 +3,15 @@ import json
 import os
 import logging
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, when, regexp_replace, to_date, regexp_extract, udf
+from pyspark.sql.functions import col, when, regexp_replace, to_date, regexp_extract, udf,date_format
 from pyspark.sql.types import FloatType, IntegerType
 
 # Initialize Spark session
 spark = SparkSession.builder \
     .appName("Data Cleaning Based on Audit Report") \
     .getOrCreate()
+# Set legacy time parser policy for compatibility with Spark 3.x+
+spark.conf.set("spark.sql.legacy.timeParserPolicy", "LEGACY")
 
 # Define paths
 base_path = "data/raw/"
@@ -102,7 +104,7 @@ def clean_data(df, report, source_name):
         df = df.fillna(fill_values)
         log_message(f"Applied fillna with values: {fill_values}")
 
-    # 2. Remove Duplicate Rows (already handled in Silver layer, but double-check)
+    # 2. Remove Duplicate Rows 
     duplicate_rows = report.get("duplicate_rows", 0)
     if duplicate_rows > 0:
         df = df.dropDuplicates()
@@ -176,7 +178,19 @@ def clean_data(df, report, source_name):
 
         else:
             log_message(f"Unhandled expected type '{expected_type}' for column '{column}'", level="warning")
-
+     # 5. Fix Dates Format
+    # 5. Fix Dates Format
+    date_columns = [col_name for col_name in df.columns if "Date" in col_name]
+    for date_column in date_columns:
+        # Convert M/DD/YY to YYYY-MM-DD (date only)
+        df = df.withColumn(
+            date_column,
+            when(
+                col(date_column).rlike("^[0-9]{1,2}/[0-9]{1,2}/[0-9]{2}$"),  # Matches M/DD/YY format
+                date_format(to_date(col(date_column), "M/dd/yy"), "yyyy-MM-dd")
+            ).otherwise(None)  # Set invalid dates to null
+        )
+        log_message(f"Standardized date format in column '{date_column}' to 'YYYY-MM-DD'")
     log_message(f"Finished cleaning for {source_name}")
     return df
 

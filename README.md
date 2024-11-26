@@ -6,3 +6,18 @@
 6-etl_transformation/sales_currency.py
 
 taxRate = 0 ::::> tax rate is unavailable
+
+## SCD Type 2 in Dimensions:
+
+The StartDate, EndDate, and IsCurrent columns in dimensions (DimCustomers, DimProducts) support historical tracking of changes.
+Fact Table:
+
+## All KPIs (e.g., AttractivenessIndex, CustomerValue, ProductSalesStatus) are included here.
+
+Date Dimension:
+
+This supports filtering and aggregation by various time periods.
+
+## Surrogate Keys:
+
+Fact table uses surrogate keys (SalesID) for better performance and integration.
