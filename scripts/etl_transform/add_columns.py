@@ -1,6 +1,7 @@
-import pycountry
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
+import pycountry
 import pycountry_convert as pc
 import os
 from datetime import datetime
@@ -8,10 +9,11 @@ import logging
 
 # Initialize Spark session
 spark = SparkSession.builder \
-    .appName("Data Enrichment - Continent Code and Client Status") \
+    .appName("Data Enrichment - Continent Code, Client Status, and Additional Datasets") \
     .getOrCreate()
 
 # Define paths
+bronze_base_path = "output/bronze/"
 silver_base_path = "output/silver/"
 date_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -36,29 +38,29 @@ def log_message(message, level="info"):
         logging.error(message)
     print(message)
 
-# UDF to convert country names to continent codes
-def get_continent_code(country_name):
-    """
-    Converts a country name to a continent code (e.g., 'NA' for North America).
-    
-    Parameters:
-        country_name (str): Name of the country to convert.
-    
-    Returns:
-        str: Continent code or "Unknown" if not found.
-    """
+# UDF to convert country names to ISO codes
+def country_to_iso_code(country_name):
     try:
-        # Handle country name variations
+        if country_name.lower() in ["uk", "united kingdom"]:
+            country_name = "United Kingdom"
+        return pycountry.countries.lookup(country_name).alpha_3
+      
+    except (LookupError, KeyError):
+        return "UNK"  # Use "UNK" for unknown countries
+
+country_to_iso_code_udf = F.udf(country_to_iso_code)
+# UDF to convert country names to ISO codes
+@F.udf
+def country_to_continent_code(country_name):
+    try:
         if country_name.lower() in ["uk", "united kingdom"]:
             country_name = "United Kingdom"
         country_alpha2 = pycountry.countries.lookup(country_name).alpha_2
         continent_code = pc.country_alpha2_to_continent_code(country_alpha2)
         return continent_code
-    except (LookupError, KeyError, AttributeError):
-        return "Unknown"
+    except (LookupError, KeyError):
+        return "UNK"  # Use "UNK" for unknown countries
 
-# Register the UDF for PySpark
-get_continent_code_udf = F.udf(get_continent_code)
 
 # Step 1: Load cleaned customers data
 customers_path = os.path.join(silver_base_path, "cleaned", "customers", date_str)
@@ -74,13 +76,13 @@ log_message(f"Loaded sales data with {df_sales_cleaned.count()} rows.")
 
 # Step 3: Enrich customers data with continent code
 log_message("Enriching customers data with continent code.")
-df_customers_enriched = df_customers_cleaned.withColumn("code_region", get_continent_code_udf(F.col("Country")))
+df_customers_enriched = df_customers_cleaned.withColumn("code_region", country_to_continent_code(F.col("Country")))
 
 log_message("Completed enriching customers data with continent code.")
 
 # Step 4: Enrich sales data with continent code based on ShipCountry
 log_message("Enriching sales data with continent code based on ShipCountry.")
-df_sales_enriched = df_sales_cleaned.withColumn("region_code", get_continent_code_udf(F.col("ShipCountry")))
+df_sales_enriched = df_sales_cleaned.withColumn("region_code", country_to_continent_code(F.col("ShipCountry")))
 log_message("Completed enriching sales data with continent code.")
 
 # Step 5: Add TotalAmount column to sales data
@@ -145,19 +147,60 @@ log_message(f"Saving enriched products data to: {enriched_products_path}")
 df_products_with_status.write.mode("overwrite").parquet(enriched_products_path)
 log_message("Enriched products data saved.")
 
+# Save enriched customers data
 enriched_customers_path = os.path.join(silver_base_path, "enrichment", "customers", date_str)
 log_message(f"Saving enriched customers data to: {enriched_customers_path}")
 df_customers_final.write.mode("overwrite").parquet(enriched_customers_path)
 log_message("Enriched customers data saved.")
 
-# Save enriched sales data with region code
+# Save enriched sales data
 enriched_sales_path = os.path.join(silver_base_path, "enrichment", "sales", date_str)
 log_message(f"Saving enriched sales data to: {enriched_sales_path}")
-df_sales_enriched.write.mode("overwrite").parquet(enriched_sales_path)
+df_sales_enriched.drop("TotalAmount").write.mode("overwrite").parquet(enriched_sales_path)
 log_message("Enriched sales data saved.")
 
-# Log message for completion
-log_message(f"Data enrichment process completed successfully.")
+# Load TaxRate data from Bronze layer
+taxrate_path = os.path.join(bronze_base_path, "taxrate", date_str)
+log_message(f"Loading TaxRate data from: {taxrate_path}")
+df_taxrate = spark.read.parquet(taxrate_path)
+
+log_message("Transforming TaxRate country names to ISO codes and adding TaxRateID.")
+df_taxrate = df_taxrate.withColumn(
+    "Country",
+    country_to_iso_code_udf(F.col("Country"))
+).withColumn(
+    "TaxRateID",
+    F.row_number().over(Window.orderBy("Country", "Year"))
+)
+
+silver_taxrate_path = os.path.join(silver_base_path, "enrichment", "taxrate", date_str)
+log_message(f"Saving enriched TaxRate data to: {silver_taxrate_path}")
+df_taxrate.write.mode("overwrite").parquet(silver_taxrate_path)
+log_message("TaxRate data saved.")
+
+# Load Exchange data from Bronze layer
+exchange_path = os.path.join(bronze_base_path, "exchange_data", date_str)
+log_message(f"Loading Exchange data from: {exchange_path}")
+df_exchange = spark.read.parquet(exchange_path)
+
+log_message("Transforming Exchange data country names to ISO codes and updating date format.")
+df_exchange = df_exchange.withColumn(
+    "country",
+    country_to_iso_code_udf(F.col("country"))
+).withColumn(
+    "date",
+    F.date_format(F.to_date(F.col("date"), "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"), "yyyy-MM-dd")
+).withColumn(
+    "ExchangeID",
+    F.row_number().over(Window.orderBy("date", "country"))
+)
+
+silver_exchange_path = os.path.join(silver_base_path, "enrichment", "exchange_data", date_str)
+log_message(f"Saving enriched Exchange data to: {silver_exchange_path}")
+df_exchange.write.mode("overwrite").parquet(silver_exchange_path)
+log_message("Exchange data saved.")
+
+log_message("Data enrichment process completed successfully.")
 
 # Stop Spark session
 spark.stop()
