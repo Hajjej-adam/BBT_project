@@ -45,6 +45,12 @@ load_to_sql_jdbc("DimProduct", df_products)
 df_store = spark.read.parquet(os.path.join(gold_base_path, "dim_store", date_str))
 load_to_sql_jdbc("DimStore", df_store)
 
+df_taxrate = spark.read.parquet(os.path.join(gold_base_path, "dim_taxrate", date_str))
+load_to_sql_jdbc("DimTaxRate", df_taxrate)
+
+df_exchange = spark.read.parquet(os.path.join(gold_base_path, "dim_exchange", date_str))
+load_to_sql_jdbc("DimExchange", df_exchange)
+
 df_calendar = spark.read.parquet(os.path.join(gold_base_path, "dim_calendar", date_str))
 load_to_sql_jdbc("DimCalendar", df_calendar)
 

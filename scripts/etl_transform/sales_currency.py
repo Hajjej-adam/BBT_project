@@ -33,11 +33,11 @@ sales_path = os.path.join(silver_base_path, "enrichment", "sales", "with_tax_rat
 products_path = os.path.join(silver_base_path, "enrichment", "products", date_str)
 suppliers_path = os.path.join(silver_base_path, "cleaned", "suppliers", date_str)
 exchange_rate_path = os.path.join(silver_base_path, "enrichment", "exchange_data", date_str)
-enriched_sales_path = os.path.join(silver_base_path, "enrichment", "sales", "with_currency", date_str)
+enriched_sales_path = os.path.join(silver_base_path, "enrichment", "sales", "with_currency_id", date_str)
 @udf
 def get_iso_code(country_name):
     try:
-        if country_name in ["uk", "united kingdom"]:
+        if country_name in ["uk", "UK","united kingdom"]:
             country_name = "United Kingdom"
         return pycountry.countries.lookup(country_name).alpha_3
     except LookupError:
@@ -75,12 +75,12 @@ df_sales = df_sales.join(
 
 
 # Define a window specification to get the last available rate
-#window_spec = Window.partitionBy("country").orderBy("date")
+window_spec = Window.partitionBy("country").orderBy("date")
 
 # Add a column with the last available exchange rate for each country
-#df_exchange_rates = df_exchange_rates.withColumn(
- #   "last_exchange_rate_to_euro",
-  #  last("exchange_rate_to_euro", ignorenulls=True).over(window_spec))
+df_exchange_rates = df_exchange_rates.withColumn(
+    "last_exchange_rate_to_euro",
+    last("exchange_rate_to_euro", ignorenulls=True).over(window_spec))
 
 
 # Convert Country Names to ISO Codes in Both DataFrames
@@ -98,10 +98,10 @@ df_sales_with_exchange_rate = df_sales.join(
 )
 
 # Fill missing exchange rates with the last available rate
-#df_sales_with_exchange_rate = df_sales_with_exchange_rate.withColumn(
- #   "exchange_rate_to_euro",
-  #  when(col("exchange_rate_to_euro").isNull(), col("last_exchange_rate_to_euro"))
-   # .otherwise(col("exchange_rate_to_euro")))
+df_sales_with_exchange_rate = df_sales_with_exchange_rate.withColumn(
+    "exchange_rate_to_euro",
+    when(col("exchange_rate_to_euro").isNull(), col("last_exchange_rate_to_euro"))
+    .otherwise(col("exchange_rate_to_euro")))
 
 # Define Eurozone countries
 eurozone_countries = ["France", "Italy", "Germany", "Austria", "Spain", "Portugal", "Netherlands",
@@ -117,7 +117,7 @@ df_sales_with_exchange_rate = df_sales_with_exchange_rate.withColumn(
 
 # Log rows where exchange rate is null after the adjustment
 log_message("Rows with Null Exchange Rate After Adjustment:")
-df_sales_with_exchange_rate.filter(col("exchange_rate_to_euro").isNull()).show()
+df_sales_with_exchange_rate.filter(col("ExchangeID").isNull()).show()
 
 
 # Drop unwanted columns

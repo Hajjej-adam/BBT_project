@@ -182,7 +182,9 @@ log_message("TaxRate data saved.")
 exchange_path = os.path.join(bronze_base_path, "exchange_data", date_str)
 log_message(f"Loading Exchange data from: {exchange_path}")
 df_exchange = spark.read.parquet(exchange_path)
-
+log_message("Dropping duplicate rows from Exchange data.")
+df_exchange = df_exchange.dropDuplicates()
+log_message(f"Dropped duplicates, remaining rows: {df_exchange.count()}.")
 log_message("Transforming Exchange data country names to ISO codes and updating date format.")
 df_exchange = df_exchange.withColumn(
     "country",
