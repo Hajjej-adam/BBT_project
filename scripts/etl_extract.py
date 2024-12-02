@@ -24,15 +24,18 @@ os.makedirs(log_dir, exist_ok=True)
 logging.basicConfig(filename=log_path, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 
+
 def log_message(message, level="info"):
     """Logs messages with the specified level."""
     if level == "info":
         logging.info(message)
     elif level == "error":
         logging.error(message)
-    print(message)  
+    print(message)
+
+
 # Define sources
-sources = ["sales", "customers", "products", "suppliers"]
+sources = ["sales", "customers", "products", "suppliers", "taxrate", "exchange_data"]
 
 # Process each source file
 for source in sources:

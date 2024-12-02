@@ -1,4 +1,3 @@
-*.csv
 *.parquet
 *.log
 *.crc

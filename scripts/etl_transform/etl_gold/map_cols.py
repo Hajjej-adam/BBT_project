@@ -2,7 +2,9 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
-from datetime import datetime
+from datetime import datetime, timedelta
+from pyspark.sql.types import DateType
+from pyspark.sql import Row
 
 # Initialize Spark session
 spark = SparkSession.builder \
@@ -33,6 +35,39 @@ def save_gold_data(df, table_name):
         raise
 
 # Step 1: Transform and Save Dimension Tables with Surrogate Keys
+
+
+# DimTaxRate (with Surrogate Key)
+tax_path = os.path.join(silver_base_path, "enrichment/taxrate", date_str)
+df_tax = spark.read.parquet(tax_path)
+
+df_tax_gold = df_tax.select(
+    F.monotonically_increasing_id().alias("TaxRateKey"),  # Generate surrogate key
+    F.col("TaxRateID").alias("TaxRateID"),
+    F.col("Country").alias("Country"),
+    F.col("Year").alias("Year"),
+    F.col("TaxRate").alias("TaxRate")
+)
+
+save_gold_data(df_tax_gold, "dim_taxrate")
+
+
+# DimExchange (with Surrogate Key)
+exchange_path = os.path.join(silver_base_path, "enrichment/exchange_data", date_str)
+df_exchange = spark.read.parquet(exchange_path)
+
+df_exchange_gold = df_exchange.select(
+    F.monotonically_increasing_id().alias("ExchangeKey"),  # Generate surrogate key
+    F.col("ExchangeID").alias("ExchangeID"),
+    F.col("date").alias("date"),
+    F.col("country").alias("country"),
+    F.col("currency").alias("currency"),
+    F.col("exchange_rate_to_euro").alias("exchange_rate_to_euro")
+)
+
+save_gold_data(df_exchange_gold, "dim_exchange")
+
+
 
 # DimCustomer (SCD Type 2 with ClientValue and Surrogate Key)
 customers_path = os.path.join(silver_base_path, "enrichment/customers", date_str)
@@ -66,7 +101,7 @@ save_gold_data(df_customers_gold, "dim_customers")
 products_path = os.path.join(silver_base_path, "enrichment/products", date_str)
 df_products = spark.read.parquet(products_path)
 
-sales_path = os.path.join(silver_base_path, "enrichment/sales/with_currency", date_str)
+sales_path = os.path.join(silver_base_path, "enrichment/sales/with_currency_id", date_str)
 df_sales = spark.read.parquet(sales_path)
 
 df_last_sold = df_sales.groupBy("ProductID").agg(
@@ -133,47 +168,65 @@ df_sales_with_stores = df_sales.join(
     "inner"
 )
 
-df_store_attractiveness = df_sales_with_stores.groupBy("StoreID").agg(
-    F.count("*").alias("TotalTransactions"),
-    F.sum("total_amount_in_euro").alias("TotalRevenue"),
-    (F.sum("total_amount_in_euro") / F.count("*")).alias("AttractivenessIndex")
-)
+#df_store_attractiveness = df_sales_with_stores.groupBy("StoreID").agg(
+ #   F.count("*").alias("TotalTransactions"),
+  #  F.sum("total_amount_in_euro").alias("TotalRevenue"),
+  #  (F.sum("total_amount_in_euro") / F.count("*")).alias("AttractivenessIndex"))
 
-df_store_gold = df_products_suppliers.join(
-    df_store_attractiveness,
-    "StoreID",
-    "left"
-).select(
+df_store_gold = df_products_suppliers.select(
     "StoreID",
     "StoreName",
     "Address",
     "City",
     "PostalCode",
     "Country",
-    "AttractivenessIndex"
 ).distinct()
 df_store_gold=df_store_gold.withColumn("StoreKey", F.monotonically_increasing_id())
 
 
 save_gold_data(df_store_gold, "dim_store")
-
-# DimCalendar with Surrogate Key
-df_date = df_sales.select(
-    F.col("OrderDate").alias("CalendarDate"),
-    F.dayofweek("OrderDate").alias("DayOfWeek"),
-    F.month("OrderDate").alias("Month"),
-    F.year("OrderDate").alias("Year"),
-    F.quarter("OrderDate").alias("Quarter")
-).distinct()
+# The following code is an alternative way to create the DimCalendar with Surrogate Key
+# df_date = df_sales.select(
+#     F.col("OrderDate").alias("CalendarDate"),
+#     F.dayofweek("OrderDate").alias("DayOfWeek"),
+#     F.month("OrderDate").alias("Month"),
+#     F.year("OrderDate").alias("Year"),
+#     F.quarter("OrderDate").alias("Quarter")
+# ).distinct()
 
 # Add surrogate key for Calendar dimension
-df_calendar_gold = df_date.withColumn(
+# df_calendar_gold = df_date.withColumn(
+#     "CalendarKey",
+#     F.monotonically_increasing_id()
+# )
+
+# save_gold_data(df_calendar_gold, "dim_calendar")
+# Generate a list of dates between 2022-01-01 and 2025-01-01
+start_date = "2022-01-01"
+end_date = "2025-01-01"
+
+# Create a DataFrame with all dates in the range
+df_dates = spark.sql(f"""
+    SELECT explode(sequence(to_date('{start_date}'), to_date('{end_date}'), interval 1 day)) AS CalendarDate
+""")
+
+# Add calendar attributes with date in YYYY-MM-DD format
+df_calendar = df_dates.select(
+    F.date_format(F.col("CalendarDate"), "yyyy-MM-dd").alias("CalendarDate"),
+    F.dayofweek("CalendarDate").alias("DayOfWeek"),
+    F.month("CalendarDate").alias("Month"),
+    F.year("CalendarDate").alias("Year"),
+    F.quarter("CalendarDate").alias("Quarter")
+)
+
+# Add surrogate key using monotonically increasing ID
+df_calendar_gold = df_calendar.withColumn(
     "CalendarKey",
     F.monotonically_increasing_id()
 )
 
+# Save the DataFrame to the gold layer (assuming save_gold_data function exists)
 save_gold_data(df_calendar_gold, "dim_calendar")
-
 
 # FactSales (Map Natural Keys to Surrogate Keys)
 # Join Sales with DimCustomer
@@ -186,6 +239,19 @@ df_fact_sales = df_sales.join(
 df_fact_sales = df_fact_sales.join(
     df_calendar_gold.select("CalendarDate", "CalendarKey"),
     df_fact_sales["OrderDate"] == df_calendar_gold["CalendarDate"],
+    "inner"
+)
+# Join with DimTaxRate
+df_fact_sales = df_fact_sales.join(
+    df_tax_gold.select("TaxRateKey", "TaxRateID"),
+    df_fact_sales["TaxRateID"] == df_tax_gold["TaxRateID"],
+    "inner"
+)
+
+# Join with DimExchange
+df_fact_sales = df_fact_sales.join(
+    df_exchange_gold.select("ExchangeKey", "ExchangeID"),
+    df_fact_sales["ExchangeID"] == df_exchange_gold["ExchangeID"],
     "inner"
 )
 
@@ -215,11 +281,11 @@ df_fact_sales = df_fact_sales.select(
     F.col("OrderID"),
     F.col("OrderDate"),
     F.col("ShippedDate"),
-    F.col("Quantity"),
     F.col("region_code").alias("Region"),
-    F.col("total_amount_in_euro").alias("TotalAmount"),
-    F.col("TaxRate"),
-    F.col("Discount")
+    F.col("Quantity"),
+    F.col("Discount"),
+    F.col("TaxRateKey"),
+    F.col("ExchangeKey")
 )
 
 save_gold_data(df_fact_sales, "fact_sales")
