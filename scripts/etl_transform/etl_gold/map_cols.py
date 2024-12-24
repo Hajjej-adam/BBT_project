@@ -162,17 +162,6 @@ df_products_suppliers = df_products.join(
     df_suppliers["Country"].alias("Country")
 )
 
-df_sales_with_stores = df_sales.join(
-    df_products_suppliers,
-    df_sales["ProductID"] == df_products_suppliers["StoreID"],
-    "inner"
-)
-
-#df_store_attractiveness = df_sales_with_stores.groupBy("StoreID").agg(
- #   F.count("*").alias("TotalTransactions"),
-  #  F.sum("total_amount_in_euro").alias("TotalRevenue"),
-  #  (F.sum("total_amount_in_euro") / F.count("*")).alias("AttractivenessIndex"))
-
 df_store_gold = df_products_suppliers.select(
     "StoreID",
     "StoreName",
