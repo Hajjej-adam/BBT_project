@@ -1,6 +1,6 @@
-# **Data Warehouse for BBT**
+# Data Warehouse for BBT
 
-## **Project Description**
+## Project Description
 
 This project outlines an **Extract, Transform, Load (ETL)** process for data warehousing. It leverages Python scripts to:
 - Extract data from various sources.
@@ -9,13 +9,13 @@ This project outlines an **Extract, Transform, Load (ETL)** process for data war
 
 ---
 
-## **ETL Steps**
+## ETL Steps
 
-### **1. Data Extraction (`etl_extract.py`)**
+### 1. Data Extraction (`etl_extract.py`)
 - This script extracts data from **CSV files**.
 - Ensure proper configuration of **connection details** and data retrieval logic.
 
-### **2. Data Transformation (`etl_transformation/`)**
+### 2. Data Transformation (`etl_transformation/`)
 This directory contains scripts for various data transformations:
 - **`audit_report.py`**: Generates a report detailing potential data quality issues encountered during extraction.
 - **`data_cleaning.py`**: Cleans and prepares data, including:
@@ -29,7 +29,7 @@ This directory contains scripts for various data transformations:
   - Maps columns from the source data to the target data warehouse schema.
   - Ensures proper data alignment and understanding.
 
-### **3. Data Loading (`etl_load.py`)**
+### 3. Data Loading (`etl_load.py`)
 - This script loads the transformed data into the target data warehouse or data lake.
 - Ensure configuration of:
   - **Connection details**.
@@ -37,9 +37,9 @@ This directory contains scripts for various data transformations:
 
 ---
 
-## **Data Warehouse Design Considerations**
+## Data Warehouse Design Considerations
 
-### **1. SCD Type 2 in Dimensions**
+### 1. SCD Type 2 in Dimensions
 - Supports historical tracking of dimension changes using:
   - `StartDate`
   - `EndDate`
@@ -49,31 +49,33 @@ This directory contains scripts for various data transformations:
   - `DimProducts`
 - Allows for analyzing data at specific points in time.
 
-### **2. Fact Table**
+### 2. Fact Table
 - Holds Key Performance Indicators (**KPIs**) such as:
   - `AttractivenessIndex`
   - `CustomerValue`
   - `ProductSalesStatus`.
 
-### **3. Date Dimension**
+### 3. Date Dimension
 - Enables filtering and aggregation based on various time periods.
 
-### **4. Surrogate Keys**
+### 4. Surrogate Keys
 - Fact tables utilize surrogate keys (e.g., `SalesID`) to enhance:
   - **Performance**.
   - **Data integration**.
 
 ---
 
-## **Prerequisites**
+## Prerequisites
 
 - **Python**: Recommended version `[Specify your preferred version]`.
 - **Python libraries**: List all required libraries in `requirements.txt`.
 - **Access to data sources**: Specify types and credentials.
+- **SQL Server**: Ensure SQL Server is installed and running on your machine.
+- **SQL Server Management Studio (SSMS)**: Recommended for managing and restoring the database.
 
 ---
 
-## **Installation**
+## Installation
 
 1. Clone the repository:
 
@@ -89,7 +91,33 @@ This directory contains scripts for various data transformations:
 
 ---
 
-## **Usage**
+## Restoring the `dw_bbt.bak` File in SQL Server
+
+To restore the `dw_bbt.bak` file and load the database into SQL Server, follow these steps:
+
+### Step 1: Open SQL Server Management Studio (SSMS)
+1. Launch SSMS and connect to your SQL Server instance.
+
+### Step 2: Restore the Database
+1. **Right-click** on the **Databases** node in the Object Explorer.
+2. Select **Restore Database...** from the context menu.
+
+### Step 3: Configure the Restore Options
+1. In the **Restore Database** window:
+   - **Source**: Select "Device" and click the **...** button to browse for the backup file.
+   - **Add**: Navigate to the location of the `dw_bbt.bak` file and select it.
+   - **Destination**: 
+     - **Database**: Enter `dw_bbt` as the database name.
+2. Click **OK** to proceed.
+
+### Step 4: Verify and Complete the Restore
+1. Review the restore settings in the **General** and **Options** tabs.
+2. Ensure that the **Restore** option is selected and click **OK** to start the restore process.
+3. Once the restore is complete, you should see the `dw_bbt` database listed under the **Databases** node in SSMS.
+
+---
+
+## Usage
 
 1. Configure **connection details** in the relevant scripts:
    - Database credentials for **extraction**.
@@ -107,6 +135,7 @@ This directory contains scripts for various data transformations:
 
 ---
 
-## **Additional Notes**
+## Additional Notes
 - **Code with caution**: Ensure the configurations and logic align with your specific project requirements before executing any scripts.
 - For more details, refer to the individual script comments and documentation.
+- **Backup and Restore**: Always ensure you have a backup of your database before performing any restore operations.
