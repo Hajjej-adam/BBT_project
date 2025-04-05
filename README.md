@@ -135,7 +135,3 @@ To restore the `dw_bbt.bak` file and load the database into SQL Server, follow t
 
 ---
 
-## Additional Notes
-- **Code with caution**: Ensure the configurations and logic align with your specific project requirements before executing any scripts.
-- For more details, refer to the individual script comments and documentation.
-- **Backup and Restore**: Always ensure you have a backup of your database before performing any restore operations.
